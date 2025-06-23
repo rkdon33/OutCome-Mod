@@ -93,11 +93,21 @@ class ResultCog(commands.Cog):
         print(f"Result cog loaded as {self.bot.user}")
 
     @commands.command(name="result")
+    @commands.has_permissions(administrator=True)
     async def result_prefix(self, ctx):
         await self.start_result(ctx)
 
+    @result_prefix.error
+    async def result_prefix_error(self, ctx, error):
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send(embed=make_embed("You need to be an **Admin** to use this command!", red=True))
+
     @nextcord.slash_command(name="result", description="Start result making panel")
     async def result_slash(self, interaction: Interaction):
+        # Check admin permission for slash command
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(embed=make_embed("You need to be an **Admin** to use this command!", red=True), ephemeral=True)
+            return
         await self.start_result(interaction)
 
     async def start_result(self, ctx_or_interaction):
@@ -123,6 +133,12 @@ class ResultCog(commands.Cog):
 
         session = user_sessions.get(message.author.id)
         if not session:
+            return
+
+        # Check admin permission for message-based steps
+        if not message.author.guild_permissions.administrator:
+            await message.channel.send(embed=make_embed("You need to be an **Admin** to use this feature!", red=True))
+            user_sessions.pop(message.author.id, None)
             return
 
         # Team count step (supports both games)
