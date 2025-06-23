@@ -1,4 +1,37 @@
-.response.send_message("Only the command author can use this.", ephemeral=True)
+import nextcord
+from nextcord.ext import commands
+from nextcord import Interaction, ButtonStyle, Embed, SelectOption
+from nextcord.ui import View, Button, Select
+
+FF_POINTS = [12, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0]  # Free Fire
+PUBG_POINTS = [10, 6, 5, 4, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]  # PUBG, for 16 teams
+
+user_sessions = {}
+
+def make_embed(desc, red=True, title=None):
+    embed = Embed(description=desc, color=nextcord.Color.red() if red else nextcord.Color.blue())
+    if title:
+        embed.title = title
+    return embed
+
+def pubg_team_name_format():
+    # 16 slots for PUBG
+    return (
+        "Team 1 - Name Here\nTeam 2 - Name Here\nTeam 3 - Name Here\nTeam 4 - Name Here\n"
+        "Team 5 - Name Here\nTeam 6 - Name Here\nTeam 7 - Name Here\nTeam 8 - Name Here\n"
+        "Team 9 - Name Here\nTeam 10 - Name Here\nTeam 11 - Name Here\nTeam 12 - Name Here\n"
+        "Team 13 - Name Here\nTeam 14 - Name Here\nTeam 15 - Name Here\nTeam 16 - Name Here"
+    )
+
+class GameSelectView(View):
+    def __init__(self, author_id):
+        super().__init__(timeout=60)
+        self.author_id = author_id
+
+    @nextcord.ui.button(label="Free Fire", style=ButtonStyle.danger)
+    async def free_fire(self, button: Button, interaction: Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Only the command author can use this.", ephemeral=True)
             return
         await interaction.response.send_message(embed=make_embed("How many teams?\n```Minimum: 2 - Maximum 12```", red=True), ephemeral=True)
         user_sessions[self.author_id] = {"game": "freefire", "step": "team_count"}
