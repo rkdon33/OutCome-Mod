@@ -16,6 +16,12 @@ bot = commands.Bot(command_prefix=".", intents=intents)
 # REMOVE THE DEFAULT HELP COMMAND
 bot.remove_command("help")
 
+# Bot status configuration - Set bot activity when it comes online
+@bot.event
+async def on_ready():
+    await bot.change_presence(activity=nextcord.Activity(type=nextcord.ActivityType.listening, name="| .help | /help"))
+    print(f"Bot is ready! Logged in as {bot.user}")
+
 # Automatically load all Cogs from the commands folder
 for filename in os.listdir('./commands'):
     if filename.endswith('.py'):
