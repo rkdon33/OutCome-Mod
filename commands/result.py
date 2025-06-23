@@ -1,26 +1,4 @@
-import nextcord
-from nextcord.ext import commands
-from nextcord import Interaction, ButtonStyle, Embed, SelectOption
-from nextcord.ui import View, Button, Select
-
-FF_POINTS = [12, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0]
-user_sessions = {}
-
-def make_embed(desc, red=True, title=None):
-    embed = Embed(description=desc, color=nextcord.Color.red() if red else nextcord.Color.blue())
-    if title:
-        embed.title = title
-    return embed
-
-class GameSelectView(View):
-    def __init__(self, author_id):
-        super().__init__(timeout=60)
-        self.author_id = author_id
-
-    @nextcord.ui.button(label="Free Fire", style=ButtonStyle.danger)
-    async def free_fire(self, button: Button, interaction: Interaction):
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("Only the command author can use this.", ephemeral=True)
+.response.send_message("Only the command author can use this.", ephemeral=True)
             return
         await interaction.response.send_message(embed=make_embed("How many teams?\n```Minimum: 2 - Maximum 12```", red=True), ephemeral=True)
         user_sessions[self.author_id] = {"game": "freefire", "step": "team_count"}
@@ -28,9 +6,11 @@ class GameSelectView(View):
 
     @nextcord.ui.button(label="PUBG", style=ButtonStyle.danger)
     async def pubg(self, button: Button, interaction: Interaction):
-        await interaction.response.send_message(
-            embed=make_embed("PUBG points panel coming soon!", red=True), ephemeral=True
-        )
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Only the command author can use this.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=make_embed("How many teams?\n```Minimum: 2 - Maximum 16```", red=True), ephemeral=True)
+        user_sessions[self.author_id] = {"game": "pubg", "step": "team_count"}
         self.stop()
 
 class TeamDetailsView(View):
@@ -77,7 +57,6 @@ class ResultCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        await self.bot.change_presence(activity=nextcord.Activity(type=nextcord.ActivityType.listening, name=".result"))
         print(f"Result cog loaded as {self.bot.user}")
 
     @commands.command(name="result")
@@ -105,7 +84,6 @@ class ResultCog(commands.Cog):
         if message.author.bot:
             return
 
-        # If it's a command, let commands extension handle it
         ctx = await self.bot.get_context(message)
         if ctx.valid:
             return
@@ -114,17 +92,28 @@ class ResultCog(commands.Cog):
         if not session:
             return
 
+        # Team count step (supports both games)
         if session.get("step") == "team_count":
             try:
                 num = int(message.content)
-                if 2 <= num <= 12:
+                game = session["game"]
+                min_teams = 2
+                max_teams = 12 if game == "freefire" else 16
+                if min_teams <= num <= max_teams:
                     session["team_count"] = num
                     session["step"] = "team_names"
+                    if game == "pubg":
+                        format_msg = pubg_team_name_format()
+                        max_show = 16
+                    else:
+                        format_msg = "\n".join([f"Team {i+1} - Name Here" for i in range(12)])
+                        max_show = 12
                     await message.channel.send(embed=make_embed(
-                        f"**Enter team names in the same format given below:\n- One Line per Team\n- Easy Tip:- Hold this message to copy it:**\n```Team 1 - Name Here\nTeam 2 - Name Here\nTeam 3 - Name Here\nTeam 4 - Name Here\nTeam 5 - Name Here\nTeam 6 - Name Here\nTeam 7 - Name Here\nTeam 8 - Name Here\nTeam 9 - Name Here\nTeam 10 - Name Here\nTeam 11 - Name Here\nTeam 12 - Name Here```",red=True
+                        f"**Enter team names in the same format given below:\n- One Line per Team\n- Easy Tip:- Hold this message to copy it:**\n```{format_msg}```", red=True
                     ))
                 else:
-                    await message.channel.send(embed=make_embed("Number must be between 2 and 12.", red=True))
+                    await message.channel.send(embed=make_embed(
+                        f"Number must be between {min_teams} and {max_teams}.", red=True))
             except:
                 await message.channel.send(embed=make_embed("Please enter a valid number.", red=True))
             return
@@ -148,6 +137,7 @@ class ResultCog(commands.Cog):
                     return
             session["teams"] = teams
             session["current_team"] = 0
+            session["used_positions"] = set()  # Track used positions
             session["step"] = "team_stats"
             await message.channel.send(embed=make_embed(
                 f"Enter position and kills for:\n**- TEAM {teams[0]['name']}**\nFormat:\n```Position, Kill```\n**- eg: 1, 3\n- Here 1 means First position and 3 means total kill is 3**", red=True
@@ -159,8 +149,17 @@ class ResultCog(commands.Cog):
             team = session["teams"][idx]
             try:
                 pos, kills = [int(x.strip()) for x in message.content.split(",")]
-                if not (1 <= pos <= 12) or kills < 0:
+                game = session["game"]
+                max_pos = 12 if game == "freefire" else 16
+                if not (1 <= pos <= max_pos) or kills < 0:
                     raise ValueError
+                # Position can only be used once!
+                if pos in session["used_positions"]:
+                    await message.channel.send(embed=make_embed(
+                        f"Position {pos} has already been assigned to another team! Each position can only be used once.", red=True
+                    ))
+                    return
+                session["used_positions"].add(pos)
                 team["position"] = pos
                 team["kills"] = kills
                 session["teams"][idx] = team
@@ -201,9 +200,11 @@ class ResultCog(commands.Cog):
 
     async def send_results(self, message, session):
         results = []
+        game = session.get("game", "freefire")
+        points_table = FF_POINTS if game == "freefire" else PUBG_POINTS
         for team in session["teams"]:
             pos_idx = team["position"] - 1
-            pts = (FF_POINTS[pos_idx] if 0 <= pos_idx < len(FF_POINTS) else 0) + team["kills"]
+            pts = (points_table[pos_idx] if 0 <= pos_idx < len(points_table) else 0) + team["kills"]
             team["total"] = pts
             results.append(team)
         results.sort(key=lambda x: x["total"], reverse=True)
